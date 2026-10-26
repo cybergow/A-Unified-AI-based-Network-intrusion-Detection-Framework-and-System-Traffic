@@ -1,0 +1,26 @@
+# Python virtual environments
+.venv/
+.venv311new/
+venv/
+ENV/
+
+# Cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# VS Code
+.vscode/
+
+# Environment variables
+.env
+*.env
+
+# SQLite database & WAL files
+alerts.db
+alerts.db-journal
+alerts.db-shm
+alerts.db-wal
+
+# Serialized ML models
+*.joblib

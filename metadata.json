@@ -1,0 +1,5 @@
+{
+  "name": "SentinelPulse — Real-Time System Telemetry & Threat Alert Console",
+  "description": "Real-time system telemetry, ML threat classification, anomaly scoring, and SQLite-backed alert management dashboard powered by Flask and Socket.IO.",
+  "requestFramePermissions": []
+}

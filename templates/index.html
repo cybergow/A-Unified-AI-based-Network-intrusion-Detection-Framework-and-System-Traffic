@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SentinelPulse — Real-Time System Telemetry & Threat Alert Console</title>
+    <meta
+      name="description"
+      content="Real-time system telemetry, ML threat classification, anomaly scoring, and SQLite-backed alert management dashboard powered by Flask and Socket.IO."
+    />
+    <meta
+      property="og:title"
+      content="SentinelPulse — Real-Time System Telemetry & Threat Alert Console"
+    />
+    <meta
+      property="og:description"
+      content="Real-time system telemetry, ML threat classification, anomaly scoring, and SQLite-backed alert management dashboard powered by Flask and Socket.IO."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..600;1,9..40,400..600&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Strict 3-Zone Top Bar Contract -->
+      <header class="top-bar">
+        <a href="#console" class="brand-wordmark" data-nav="console">SentinelPulse</a>
+
+        <nav class="primary-nav" aria-label="Primary Workspace Views">
+          <a href="#console" class="nav-link active" data-nav="console">Live Console</a>
+          <a href="#alerts" class="nav-link" data-nav="alerts">Alert Feed</a>
+          <a href="#ml-lab" class="nav-link" data-nav="ml-lab">ML Classifier</a>
+          <a href="#rules" class="nav-link" data-nav="rules">Threshold Rules</a>
+        </nav>
+
+        <div class="top-bar-action">
+          <button type="button" id="btn-quick-inject" class="btn-primary">
+            Inject Anomaly Scenario
+          </button>
+        </div>
+      </header>
+
+      <!-- Workspace Context & Telemetry Control Strip -->
+      <section class="workspace-subbar" aria-label="Telemetry Stream Controls">
+        <div class="subbar-left">
+          <span class="context-breadcrumb">Observability / SQLite Audit (alerts.db)</span>
+          <span class="meta-sep" aria-hidden="true">·</span>
+          <span id="stream-connection-text" class="stream-state-text">Live Stream Connected</span>
+          <span class="meta-sep" aria-hidden="true">·</span>
+          <span id="last-tick-timestamp" class="mono-meta">Syncing...</span>
+        </div>
+
+        <div class="subbar-controls">
+          <label for="host-filter-select" class="control-label">Node Scope</label>
+          <select id="host-filter-select" class="select-input">
+            <option value="ALL">All Monitored Nodes (4)</option>
+            <option value="prod-api-01">prod-api-01</option>
+            <option value="db-replica-02">db-replica-02</option>
+            <option value="edge-gateway-01">edge-gateway-01</option>
+            <option value="ml-worker-04">ml-worker-04</option>
+          </select>
+
+          <button type="button" id="btn-toggle-stream" class="btn-secondary">
+            Pause Stream
+          </button>
+        </div>
+      </section>
+
+      <!-- Main Viewport Container -->
+      <main class="main-viewport">
+        <!-- 4-Column Full-Width KPI Strip -->
+        <section class="kpi-strip" aria-label="System Key Performance Indicators">
+          <div class="kpi-block">
+            <div class="kpi-label">System Health Posture</div>
+            <div class="kpi-value-row">
+              <span id="kpi-health-state" class="kpi-primary-value state-nominal">Nominal</span>
+              <span id="kpi-active-regime" class="kpi-subtext">Regime: Baseline</span>
+            </div>
+            <div class="kpi-foot">
+              <span id="kpi-model-backend">Model: threat_model.joblib</span>
+            </div>
+          </div>
+
+          <div class="kpi-block">
+            <div class="kpi-label">Unresolved Alerts (alerts.db)</div>
+            <div class="kpi-value-row">
+              <span id="kpi-open-alerts" class="kpi-primary-value mono-num">0</span>
+              <span class="kpi-subtext">
+                <span id="kpi-critical-alerts" class="state-critical-text mono-num">0</span> Critical
+                <span aria-hidden="true">·</span>
+                <span id="kpi-warning-alerts" class="state-warning-text mono-num">0</span> Warning
+              </span>
+            </div>
+            <div class="kpi-foot">
+              <span id="kpi-ack-resolved-summary" class="mono-meta">0 Acknowledged · 0 Resolved</span>
+            </div>
+          </div>
+
+          <div class="kpi-block">
+            <div class="kpi-label">Live ML Anomaly Score</div>
+            <div class="kpi-value-row">
+              <span id="kpi-anomaly-score" class="kpi-primary-value mono-num">0.080</span>
+              <span id="kpi-predicted-class" class="kpi-subtext">Benign</span>
+            </div>
+            <div class="kpi-foot">
+              <span id="kpi-ml-confidence" class="mono-meta">Confidence: 96.4% · Mean: 0.110</span>
+            </div>
+          </div>
+
+          <div class="kpi-block">
+            <div class="kpi-label">Latest Node Telemetry Snapshot</div>
+            <div class="kpi-value-row">
+              <span id="kpi-cpu-live" class="kpi-primary-value mono-num">32.4%</span>
+              <span id="kpi-live-host" class="kpi-subtext mono-meta">prod-api-01</span>
+            </div>
+            <div class="kpi-foot">
+              <span id="kpi-resource-tuple" class="mono-meta">Mem 51.0% · Net 118 Mbps · Disk 18 ms</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 1: LIVE CONSOLE -->
+        <section id="view-console" class="workspace-view active">
+          <!-- Scenario Injection Bar -->
+          <div class="scenario-toolbar">
+            <div class="scenario-toolbar-header">
+              <div>
+                <h2 class="section-heading">01. Live Scenario & Anomaly Injection</h2>
+                <p class="section-subtitle">
+                  Trigger deterministic stress and intrusion regimes to evaluate rule thresholds and ML classification in real time.
+                </p>
+              </div>
+              <div class="scenario-target-group">
+                <label for="scenario-target-host" class="control-label">Target Host</label>
+                <select id="scenario-target-host" class="select-input">
+                  <option value="prod-api-01">prod-api-01</option>
+                  <option value="edge-gateway-01">edge-gateway-01</option>
+                  <option value="db-replica-02">db-replica-02</option>
+                  <option value="ml-worker-04">ml-worker-04</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="scenario-buttons-row">
+              <button type="button" class="btn-scenario active" data-scenario="nominal">
+                Nominal Baseline
+              </button>
+              <button type="button" class="btn-scenario" data-scenario="syn_flood">
+                SYN Flood Surge
+              </button>
+              <button type="button" class="btn-scenario" data-scenario="memory_runaway">
+                Memory Leak Runaway
+              </button>
+              <button type="button" class="btn-scenario" data-scenario="crypto_miner">
+                Crypto-Miner CPU Spike
+              </button>
+              <button type="button" class="btn-scenario" data-scenario="brute_force">
+                Auth Brute-Force Sweep
+              </button>
+              <button type="button" class="btn-scenario" data-scenario="exfiltration">
+                Disk Exfiltration Burst
+              </button>
+            </div>
+          </div>
+
+          <!-- Split Analytics Grid: Time-Series Chart + Threat Distribution -->
+          <div class="analytics-grid">
+            <div class="panel-surface chart-panel">
+              <div class="panel-header">
+                <div>
+                  <h2 class="section-heading">02. Real-Time Multi-Metric Telemetry Stream</h2>
+                  <p class="section-subtitle">
+                    Rolling 60-frame window (2-second cadence) across CPU, Memory, Network throughput, and ML Anomaly Score.
+                  </p>
+                </div>
+                <div class="segmented-group" id="chart-series-toggles" role="group" aria-label="Chart Series Toggles">
+                  <button type="button" class="seg-btn active" data-series="cpu_percent">CPU %</button>
+                  <button type="button" class="seg-btn active" data-series="memory_percent">Memory %</button>
+                  <button type="button" class="seg-btn active" data-series="ml_anomaly_pct">ML Risk %</button>
+                  <button type="button" class="seg-btn" data-series="net_norm">Net Load</button>
+                </div>
+              </div>
+
+              <div class="canvas-wrapper">
+                <canvas id="telemetry-chart-canvas" width="860" height="280"></canvas>
+              </div>
+
+              <div class="chart-legend-row">
+                <span class="legend-item"><span class="legend-swatch swatch-cpu"></span>CPU Usage (%)</span>
+                <span class="meta-sep">·</span>
+                <span class="legend-item"><span class="legend-swatch swatch-mem"></span>Memory Pressure (%)</span>
+                <span class="meta-sep">·</span>
+                <span class="legend-item"><span class="legend-swatch swatch-ml"></span>ML Anomaly Risk (0–100%)</span>
+                <span class="meta-sep">·</span>
+                <span class="legend-item"><span class="legend-swatch swatch-net"></span>Network Scaled (Mbps / 10)</span>
+              </div>
+            </div>
+
+            <div class="panel-surface distribution-panel">
+              <div class="panel-header">
+                <div>
+                  <h2 class="section-heading">03. ML Threat Classification Breakdown</h2>
+                  <p class="section-subtitle">
+                    Live feature stress attribution and cumulative alert distribution by ML threat class.
+                  </p>
+                </div>
+              </div>
+
+              <div class="subpanel-title">Current Frame Feature Stress Attribution</div>
+              <div id="live-feature-bars" class="bar-stack-list"></div>
+
+              <div class="hairline-divider"></div>
+
+              <div class="subpanel-title">Historical Alert Distribution by Threat Class</div>
+              <div id="threat-distribution-bars" class="bar-stack-list"></div>
+            </div>
+          </div>
+
+          <!-- Recent Alerts Triage Table on Console -->
+          <div class="panel-surface">
+            <div class="panel-header">
+              <div>
+                <h2 class="section-heading">04. Live Alert Triage Stream</h2>
+                <p class="section-subtitle">
+                  Most recent threshold breaches and ML anomaly detections persisted in SQLite. Click any row to inspect full telemetry context.
+                </p>
+              </div>
+              <div class="panel-actions">
+                <button type="button" id="btn-console-ack-all" class="btn-secondary">
+                  Acknowledge Open
+                </button>
+                <button type="button" id="btn-console-view-all" class="btn-secondary">
+                  Open Full Alert Feed
+                </button>
+              </div>
+            </div>
+
+            <div class="table-scroll-container">
+              <table class="data-table" aria-label="Recent Live Alerts">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Timestamp (UTC)</th>
+                    <th>Host Node</th>
+                    <th>Severity</th>
+                    <th>ML Threat Classification</th>
+                    <th class="num-col">Metric / Breach</th>
+                    <th class="num-col">ML Score</th>
+                    <th>Status</th>
+                    <th class="action-col">Quick Triage</th>
+                  </tr>
+                </thead>
+                <tbody id="console-alerts-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Live OS Processes & Network Connections Grid -->
+          <div class="analytics-grid">
+            <div class="panel-surface">
+              <div class="panel-header">
+                <div>
+                  <h2 class="section-heading">05. Live OS Processes (/proc/[pid])</h2>
+                  <p class="section-subtitle">
+                    Real-time kernel process table sampled directly from the host operating system.
+                  </p>
+                </div>
+              </div>
+              <div class="table-scroll-container">
+                <table class="data-table" aria-label="Live OS Processes">
+                  <thead>
+                    <tr>
+                      <th>PID</th>
+                      <th>Process</th>
+                      <th>State</th>
+                      <th class="num-col">Threads</th>
+                      <th class="num-col">CPU %</th>
+                      <th class="num-col">RSS Memory</th>
+                      <th>Command Line</th>
+                    </tr>
+                  </thead>
+                  <tbody id="live-processes-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel-surface">
+              <div class="panel-header">
+                <div>
+                  <h2 class="section-heading">06. Live Network Interfaces &amp; TCP Sockets</h2>
+                  <p class="section-subtitle">
+                    Kernel interface counters (<code>/proc/net/dev</code>) and active socket table (<code>/proc/net/tcp</code>).
+                  </p>
+                </div>
+              </div>
+
+              <div class="subpanel-title">Network Interfaces</div>
+              <div class="table-scroll-container">
+                <table class="data-table" aria-label="Network Interfaces">
+                  <thead>
+                    <tr>
+                      <th>Interface</th>
+                      <th class="num-col">RX Total</th>
+                      <th class="num-col">TX Total</th>
+                      <th class="num-col">RX Rate</th>
+                      <th class="num-col">TX Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody id="live-net-interfaces-tbody"></tbody>
+                </table>
+              </div>
+
+              <div class="hairline-divider"></div>
+
+              <div class="subpanel-title">Active Kernel TCP Connections</div>
+              <div class="table-scroll-container">
+                <table class="data-table" aria-label="Active TCP Connections">
+                  <thead>
+                    <tr>
+                      <th>Local Address</th>
+                      <th>Remote Address</th>
+                      <th>Socket State</th>
+                      <th class="num-col">Inode</th>
+                    </tr>
+                  </thead>
+                  <tbody id="live-tcp-sockets-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 2: FULL ALERT FEED & FILTERING -->
+        <section id="view-alerts" class="workspace-view">
+          <div class="panel-surface">
+            <div class="panel-header">
+              <div>
+                <h1 class="view-title">Persistent Alert Feed & Audit Log</h1>
+                <p class="section-subtitle">
+                  Query, filter, triage, and export historical alerts stored in <code>alerts.db</code>.
+                </p>
+              </div>
+              <div class="panel-actions">
+                <button type="button" id="btn-bulk-ack" class="btn-secondary">Acknowledge Open</button>
+                <button type="button" id="btn-bulk-resolve" class="btn-secondary">Resolve All Active</button>
+                <button type="button" id="btn-bulk-clear" class="btn-secondary">Purge Resolved</button>
+                <a href="/api/alerts/export.csv" class="btn-primary" download>Export CSV</a>
+              </div>
+            </div>
+
+            <!-- Filter Bar -->
+            <div class="filter-bar">
+              <div class="filter-search-wrap">
+                <input
+                  type="search"
+                  id="alert-search-input"
+                  class="text-input"
+                  placeholder="Search host, metric, description, or threat class..."
+                />
+              </div>
+
+              <div class="segmented-group" id="filter-severity-group" role="group" aria-label="Filter by Severity">
+                <button type="button" class="seg-btn active" data-severity="All">All Severities</button>
+                <button type="button" class="seg-btn" data-severity="Critical">Critical</button>
+                <button type="button" class="seg-btn" data-severity="Warning">Warning</button>
+                <button type="button" class="seg-btn" data-severity="Info">Info</button>
+              </div>
+
+              <div class="segmented-group" id="filter-status-group" role="group" aria-label="Filter by Status">
+                <button type="button" class="seg-btn active" data-status="All">All Statuses</button>
+                <button type="button" class="seg-btn" data-status="Open">Open</button>
+                <button type="button" class="seg-btn" data-status="Acknowledged">Acknowledged</button>
+                <button type="button" class="seg-btn" data-status="Resolved">Resolved</button>
+              </div>
+
+              <select id="filter-threat-select" class="select-input">
+                <option value="All">All Threat Classes</option>
+                <option value="Benign">Benign</option>
+                <option value="Resource Exhaustion">Resource Exhaustion</option>
+                <option value="SYN Flood / Network Surge">SYN Flood / Network Surge</option>
+                <option value="Brute-Force Auth Intrusion">Brute-Force Auth Intrusion</option>
+                <option value="Disk I/O / Exfiltration Anomaly">Disk I/O / Exfiltration Anomaly</option>
+              </select>
+            </div>
+
+            <div class="table-scroll-container">
+              <table class="data-table" aria-label="Filtered SQLite Alerts">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Timestamp (UTC)</th>
+                    <th>Host Node</th>
+                    <th>Severity</th>
+                    <th>ML Threat Class</th>
+                    <th>Summary Description</th>
+                    <th class="num-col">ML Score</th>
+                    <th>Status</th>
+                    <th class="action-col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="feed-alerts-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 3: ML THREAT CLASSIFIER & SCORING SANDBOX -->
+        <section id="view-ml-lab" class="workspace-view">
+          <div class="ml-lab-grid">
+            <div class="panel-surface">
+              <div class="panel-header">
+                <div>
+                  <h1 class="view-title">ML Threat Classification & Anomaly Sandbox</h1>
+                  <p class="section-subtitle">
+                    Inspect how <code>threat_model.joblib</code> scores custom 6-dimensional telemetry vectors or retrain the model on demand.
+                  </p>
+                </div>
+                <button type="button" id="btn-retrain-model" class="btn-secondary">
+                  Retrain Model
+                </button>
+              </div>
+
+              <div class="preset-buttons-row">
+                <span class="control-label">Load Vector Preset:</span>
+                <button type="button" class="btn-secondary btn-sm" data-ml-preset="benign">Benign Baseline</button>
+                <button type="button" class="btn-secondary btn-sm" data-ml-preset="syn_flood">SYN Flood Vector</button>
+                <button type="button" class="btn-secondary btn-sm" data-ml-preset="exhaustion">Resource Exhaustion</button>
+                <button type="button" class="btn-secondary btn-sm" data-ml-preset="brute_force">Auth Brute-Force</button>
+                <button type="button" class="btn-secondary btn-sm" data-ml-preset="exfiltration">Disk Exfiltration</button>
+                <button type="button" class="btn-secondary btn-sm" data-ml-preset="live">Current Live Frame</button>
+              </div>
+
+              <form id="ml-predict-form" class="slider-form-grid">
+                <div class="slider-field">
+                  <div class="slider-label-row">
+                    <label for="ml-cpu">CPU Utilization (%)</label>
+                    <span id="ml-cpu-val" class="mono-num">34.0%</span>
+                  </div>
+                  <input type="range" id="ml-cpu" min="0" max="100" step="0.5" value="34.0" />
+                </div>
+
+                <div class="slider-field">
+                  <div class="slider-label-row">
+                    <label for="ml-mem">Memory Pressure (%)</label>
+                    <span id="ml-mem-val" class="mono-num">52.0%</span>
+                  </div>
+                  <input type="range" id="ml-mem" min="0" max="100" step="0.5" value="52.0" />
+                </div>
+
+                <div class="slider-field">
+                  <div class="slider-label-row">
+                    <label for="ml-net">Outbound Network Throughput (Mbps)</label>
+                    <span id="ml-net-val" class="mono-num">120.0 Mbps</span>
+                  </div>
+                  <input type="range" id="ml-net" min="5" max="1000" step="5" value="120" />
+                </div>
+
+                <div class="slider-field">
+                  <div class="slider-label-row">
+                    <label for="ml-disk">Disk I/O Latency (ms)</label>
+                    <span id="ml-disk-val" class="mono-num">18.0 ms</span>
+                  </div>
+                  <input type="range" id="ml-disk" min="1" max="260" step="1" value="18" />
+                </div>
+
+                <div class="slider-field">
+                  <div class="slider-label-row">
+                    <label for="ml-conns">Active Concurrent Connections</label>
+                    <span id="ml-conns-val" class="mono-num">190</span>
+                  </div>
+                  <input type="range" id="ml-conns" min="10" max="2600" step="10" value="190" />
+                </div>
+
+                <div class="slider-field">
+                  <div class="slider-label-row">
+                    <label for="ml-auth">Failed Auth Attempts (/min)</label>
+                    <span id="ml-auth-val" class="mono-num">1.2 /min</span>
+                  </div>
+                  <input type="range" id="ml-auth" min="0" max="110" step="0.5" value="1.2" />
+                </div>
+
+                <div class="ml-form-actions">
+                  <button type="submit" class="btn-primary">Evaluate Vector</button>
+                  <button type="button" id="btn-ml-record-alert" class="btn-secondary">
+                    Evaluate &amp; Log Alert to SQLite
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div class="panel-surface">
+              <div class="panel-header">
+                <div>
+                  <h2 class="section-heading">Model Classification Output</h2>
+                  <p id="ml-model-meta" class="section-subtitle">
+                    Artifact: threat_model.joblib · 1,000 calibration samples
+                  </p>
+                </div>
+              </div>
+
+              <div class="ml-result-summary">
+                <div class="ml-stat-col">
+                  <span class="kpi-label">Predicted Threat Class</span>
+                  <span id="ml-out-class" class="ml-big-class">Benign</span>
+                </div>
+                <div class="ml-stat-col">
+                  <span class="kpi-label">Anomaly Score (0–1)</span>
+                  <span id="ml-out-score" class="ml-big-num mono-num">0.082</span>
+                </div>
+                <div class="ml-stat-col">
+                  <span class="kpi-label">Classifier Confidence</span>
+                  <span id="ml-out-conf" class="ml-big-num mono-num">95.4%</span>
+                </div>
+              </div>
+
+              <div class="hairline-divider"></div>
+
+              <div class="subpanel-title">Per-Class Probability Distribution (%)</div>
+              <div id="ml-prob-bars" class="bar-stack-list"></div>
+
+              <div class="hairline-divider"></div>
+
+              <div class="subpanel-title">Normalized Feature Stress Contribution</div>
+              <div id="ml-contrib-bars" class="bar-stack-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 4: CUSTOM ALERT RULES & THRESHOLDS -->
+        <section id="view-rules" class="workspace-view">
+          <div class="rules-layout-grid">
+            <div class="panel-surface">
+              <div class="panel-header">
+                <div>
+                  <h1 class="view-title">Custom Alert Rules &amp; Thresholds</h1>
+                  <p class="section-subtitle">
+                    Active rules are evaluated against every incoming telemetry frame and persisted in <code>alerts.db</code>.
+                  </p>
+                </div>
+              </div>
+
+              <div class="table-scroll-container">
+                <table class="data-table" aria-label="Configured Alert Rules">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Rule Name</th>
+                      <th>Target Metric</th>
+                      <th class="num-col">Condition</th>
+                      <th>Severity</th>
+                      <th>Active State</th>
+                      <th class="action-col">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="rules-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel-surface">
+              <div class="panel-header">
+                <div>
+                  <h2 class="section-heading">Create Threshold Rule</h2>
+                  <p class="section-subtitle">
+                    Define a new deterministic metric or ML anomaly gate.
+                  </p>
+                </div>
+              </div>
+
+              <form id="create-rule-form" class="vertical-form">
+                <div class="form-field">
+                  <label for="rule-name-input" class="control-label">Rule Name</label>
+                  <input
+                    type="text"
+                    id="rule-name-input"
+                    class="text-input"
+                    placeholder="e.g. High Connection Fanout"
+                    required
+                  />
+                </div>
+
+                <div class="form-field">
+                  <label for="rule-metric-select" class="control-label">Telemetry Metric</label>
+                  <select id="rule-metric-select" class="select-input">
+                    <option value="cpu_percent">CPU Utilization (cpu_percent)</option>
+                    <option value="memory_percent">Memory Usage (memory_percent)</option>
+                    <option value="net_mbps">Outbound Network (net_mbps)</option>
+                    <option value="disk_io_ms">Disk I/O Latency (disk_io_ms)</option>
+                    <option value="active_connections">Active Connections (active_connections)</option>
+                    <option value="failed_auth_rate">Failed Auth Rate (failed_auth_rate)</option>
+                    <option value="ml_anomaly_score">ML Anomaly Score (ml_anomaly_score)</option>
+                  </select>
+                </div>
+
+                <div class="form-row-2">
+                  <div class="form-field">
+                    <label for="rule-operator-select" class="control-label">Operator</label>
+                    <select id="rule-operator-select" class="select-input">
+                      <option value=">">&gt; Greater than</option>
+                      <option value=">=">&gt;= Greater or equal</option>
+                      <option value="<">&lt; Less than</option>
+                      <option value="<=">&lt;= Less or equal</option>
+                    </select>
+                  </div>
+
+                  <div class="form-field">
+                    <label for="rule-threshold-input" class="control-label">Threshold Value</label>
+                    <input
+                      type="number"
+                      id="rule-threshold-input"
+                      class="text-input mono-num"
+                      step="any"
+                      value="85"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div class="form-field">
+                  <label for="rule-severity-select" class="control-label">Alert Severity</label>
+                  <select id="rule-severity-select" class="select-input">
+                    <option value="Critical">Critical</option>
+                    <option value="Warning">Warning</option>
+                    <option value="Info">Info</option>
+                  </select>
+                </div>
+
+                <button type="submit" class="btn-primary full-width">
+                  Save &amp; Activate Rule
+                </button>
+              </form>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Slide-Over Alert Inspection Drawer -->
+      <aside id="alert-drawer" class="inspection-drawer" aria-hidden="true">
+        <div class="drawer-header">
+          <div>
+            <div id="drawer-alert-id" class="mono-meta">Alert #—</div>
+            <h2 id="drawer-alert-title" class="section-heading">Alert Telemetry Inspection</h2>
+          </div>
+          <button type="button" id="btn-close-drawer" class="btn-secondary btn-sm">Close</button>
+        </div>
+
+        <div class="drawer-body">
+          <div id="drawer-meta-line" class="drawer-meta-row"></div>
+          <p id="drawer-description" class="drawer-desc"></p>
+
+          <div class="drawer-actions-row">
+            <button type="button" id="btn-drawer-ack" class="btn-secondary">Mark Acknowledged</button>
+            <button type="button" id="btn-drawer-resolve" class="btn-primary">Mark Resolved</button>
+            <button type="button" id="btn-drawer-delete" class="btn-danger">Delete Alert</button>
+          </div>
+
+          <div class="hairline-divider"></div>
+
+          <div class="subpanel-title">Captured Node Telemetry Snapshot</div>
+          <div id="drawer-snapshot-grid" class="snapshot-kv-grid"></div>
+
+          <div class="hairline-divider"></div>
+
+          <div class="subpanel-title">Raw Audit Payload (snapshot_json)</div>
+          <pre id="drawer-raw-json" class="raw-json-box"></pre>
+        </div>
+      </aside>
+
+      <!-- Toast Notification Region -->
+      <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
